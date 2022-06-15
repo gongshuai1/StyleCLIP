@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+import _init_paths
 
 import torch
 import torchvision
@@ -28,6 +29,7 @@ def main(args):
     ensure_checkpoint_exists(args.ckpt)
     text_inputs = torch.cat([clip.tokenize(args.description)]).cuda()
     os.makedirs(args.results_dir, exist_ok=True)
+    print(f'results_dir = {args.results_dir}')
 
     g_ema = Generator(args.stylegan_size, 512, 8)
     g_ema.load_state_dict(torch.load(args.ckpt)["g_ema"], strict=False)
@@ -35,6 +37,9 @@ def main(args):
     g_ema = g_ema.cuda()
     mean_latent = g_ema.mean_latent(4096)
 
+    print(f'latent_path = {args.latent_path}')
+    print(f'mode = {args.mode}')
+    torch.manual_seed(10000)
     if args.latent_path:
         latent_code_init = torch.load(args.latent_path).cuda()
     elif args.mode == "edit":
@@ -59,8 +64,12 @@ def main(args):
         latent = latent_code_init.detach().clone()
         latent.requires_grad = True
 
+    print(f'Load Loss')
+
     clip_loss = CLIPLoss(args)
     id_loss = IDLoss(args)
+
+    print(f'Load optimizer')
 
     if args.work_in_stylespace:
         optimizer = optim.Adam(latent, lr=args.lr)
@@ -68,6 +77,8 @@ def main(args):
         optimizer = optim.Adam([latent], lr=args.lr)
 
     pbar = tqdm(range(args.step))
+
+    print(f'Start optimization')
 
     for i in pbar:
         t = i / args.step
@@ -118,13 +129,13 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--description", type=str, default="a person with purple hair", help="the text that guides the editing/generation")
-    parser.add_argument("--ckpt", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt", help="pretrained StyleGAN2 weights")
+    parser.add_argument("--description", type=str, default="a crying person", help="the text that guides the editing/generation")
+    parser.add_argument("--ckpt", type=str, default="pretrained_models/stylegan2-ffhq-config-f.pt", help="pretrained StyleGAN2 weights")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
     parser.add_argument("--lr_rampup", type=float, default=0.05)
     parser.add_argument("--lr", type=float, default=0.1)
-    parser.add_argument("--step", type=int, default=300, help="number of optimization steps")
-    parser.add_argument("--mode", type=str, default="edit", choices=["edit", "free_generation"], help="choose between edit an image an generate a free one")
+    parser.add_argument("--step", type=int, default=600, help="number of optimization steps")
+    parser.add_argument("--mode", type=str, default="free_generation", choices=["edit", "free_generation"], help="choose between edit an image an generate a free one")
     parser.add_argument("--l2_lambda", type=float, default=0.008, help="weight of the latent distance (used for editing only)")
     parser.add_argument("--id_lambda", type=float, default=0.000, help="weight of id loss (used for editing only)")
     parser.add_argument("--latent_path", type=str, default=None, help="starts the optimization from the given latent code if provided. Otherwose, starts from"
@@ -135,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument('--work_in_stylespace', default=False, action='store_true')
     parser.add_argument("--save_intermediate_image_every", type=int, default=20, help="if > 0 then saves intermidate results during the optimization")
     parser.add_argument("--results_dir", type=str, default="results")
-    parser.add_argument('--ir_se50_weights', default='../pretrained_models/model_ir_se50.pth', type=str,
+    parser.add_argument('--ir_se50_weights', default='pretrained_models/model_ir_se50.pth', type=str,
                              help="Path to facial recognition network used in ID loss")
 
     args = parser.parse_args()
@@ -143,5 +154,3 @@ if __name__ == "__main__":
     result_image = main(args)
 
     torchvision.utils.save_image(result_image.detach().cpu(), os.path.join(args.results_dir, "final_result.jpg"), normalize=True, scale_each=True, range=(-1, 1))
-
-
